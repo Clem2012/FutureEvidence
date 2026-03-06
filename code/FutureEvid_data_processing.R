@@ -1,7 +1,10 @@
 #Defra Future Evidence
 #Integrated Seabed Monitoring
-#Processing data
+#Allocating qualifier to environmental data
 #19/02/2026
+
+# clear environment
+rm(list=ls()); gc()
 
 ##Libraries
 pkgs = c("tidyverse", "vegan", "vegan", "patchwork", "lubridate", "sf", 
