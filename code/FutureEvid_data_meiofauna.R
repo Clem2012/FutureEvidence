@@ -45,3 +45,5 @@ FUTEVID.meiSRsum$J<-FUTEVID.meiSRsum$H/log(FUTEVID.meiSRsum$SR)
 
 ## Margalef d=(S - 1)/ln(N)
 FUTEVID.meiSRsum$d<-(FUTEVID.meiSRsum$SR - 1)/log(FUTEVID.meiSRsum$A)
+
+save(FUTEVID.meiSRsum,  file="./input/FUTEVID.meioDiv.RData")

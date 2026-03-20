@@ -47,6 +47,13 @@ master<-read.csv("./data_raw/FutureEvidence_mastersheet.csv")
 ##PSA Data extracted from MDR document
 ## Old and New data integrated
 PSA<-read.csv("./data_raw/FromMDR/MDR_PSA_extraction.csv")
+
+## Completing one missing station with modelled data
+PSA[is.na(PSA$mud_pc), "mud_pc"]<-22.33197
+PSA[is.na(PSA$mud_pc), "sand_pc"]<-77.61081
+PSA[is.na(PSA$mud_pc), "gravel_pc"]<-0.05722
+  
+    
 PSAsed<-PSA %>%
   select(Survey_ID, Station_ID, gravel_pc, sand_pc, mud_pc) %>% 
   group_by(Survey_ID, Station_ID) %>% 
@@ -60,7 +67,7 @@ master1<-left_join(master, PSAsed,
 
 
 ##Station not having PSA data
-missPSA<-master1[is.na(master1$mud_pc), c("surveyCode", "stationCode", "priority")]
+#missPSA<-master1[is.na(master1$mud_pc), c("surveyCode", "stationCode", "priority")]
 
 ##Chla Data extracted from MDR document
 ## Old and New data integrated
@@ -79,9 +86,7 @@ master1<-left_join(master1, chlased,
                    by=c('surveyCode'='Survey_ID', 'stationCode'='Station_ID'))
 
 ##Station not having Chlorophyll data
-misschla<-master1[is.na(master1$chla_ug_g_corrected), c("surveyCode", "stationCode", "priority")]
-
-
+#misschla<-master1[is.na(master1$chla_ug_g_corrected), c("surveyCode", "stationCode", "priority")]
 
 ##Pb210 Data extracted from MDR document
 ## Old and New data integrated
@@ -91,16 +96,63 @@ pb210sed<-pb210 %>%
   group_by(Survey_ID, Station_ID) %>% 
   summarise(Pb210 = mean(Pb210, na.rm=T))
 
+accRate<-read.csv("./data_raw/FutureEvid_accRate.csv")
 
-##Merge Chlorophyll a and check for missing data
+accRate_final<-left_join(pb210sed,accRate )
+
+##Merge Pb210 and check for missing data
 master1<-left_join(master1, pb210sed,
                    by=c('surveyCode'='Survey_ID', 'stationCode'='Station_ID'))
 
-##Station not having Chlorophyll data
-misspb210<-master1[is.na(master1$Pb210), c("surveyCode", "stationCode", "priority")]
+##Station not having Pb210 data
+#misspb210<-master1[is.na(master1$Pb210), c("surveyCode", "stationCode", "priority")]
 
 
+##Carbon Data (given by Claire)
+## Old and New data integrated
+OC<-read.csv("./data_raw/FromMDR/MDR_OC_extraction.csv")
 
+## Measuring the OC density at the right depths
+#1/ Calculate OC density (g cm-3) for each 2cm slice:
+#OC density (g cm-3) = (OC/100) X DBD
+#OC- OC value measured in %
+#DBD – mass/volume – g cm-3
+OC$OCdens<-(OC$OC_2mm_perc/100) * OC$DryBulkDensity
+
+#2/ Convert OC density to g m-3:
+#OC density (g cm-3) X 1000000
+OC$OCdens_m3<- OC$OCdens * 1000000
+
+#3/ Calculate OC stock (g m-2) for each slice:
+#OC density/ 50 (for 2 cm slice) – CEND0723/CEND1723
+#OC density/100 (for 1cm slice) – CEND0924
+OC[OC$Survey %in% c("CEND0723", "CEND1723"), "OCstock"]<-OC[OC$Survey %in% c("CEND0723", "CEND1723"), "OCdens_m3"]/50
+OC[OC$Survey %in% c("CEND0924"), "OCstock"]<-OC[OC$Survey %in% c("CEND0924"), "OCdens_m3"]/100
+
+#4/ Calculate OC stock (top 10cm):
+# Sum the OC stock for top 5 slices (equates to top 10cm) if 2cm slices, or top 10 slices if 1cm slices.
+OCSTOCK<-OC %>% 
+  filter(lowerDepth_cm <= 10) %>% 
+  group_by(Survey_ID, Station_ID) %>% 
+  summarise(OCsum = sum(OCstock, na.rm = T))
+
+#from g to kg
+OCSTOCK$OCkg<-OCSTOCK$OCsum / 1000
+
+#OCAR
+OCAR<-OC %>% 
+  filter(lowerDepth_cm <= 10) %>% 
+  group_by(Survey_ID, Station_ID) %>% 
+  summarise(OCavg = mean(OCdens_m3, na.rm = T))
+
+OCAR<-left_join(OCAR, accRate_final)
+OCAR$OCAR<-OCAR$OCavg * OCAR$accRate
+
+master1<-left_join(master1, OCSTOCK[, c("Survey_ID",  "Station_ID", "OCkg")],
+                   by=c('surveyCode'='Survey_ID', 'stationCode'='Station_ID'))
+
+master1<-left_join(master1, OCAR[, c("Survey_ID",  "Station_ID", "OCAR")],
+                   by=c('surveyCode'='Survey_ID', 'stationCode'='Station_ID'))
 
 ##Microtox Data extracted from MDR document
 ## Old and New data integrated
@@ -116,7 +168,7 @@ master1<-left_join(master1, mictxsed,
                    by=c('surveyCode'='Survey_ID', 'stationCode'='Station_ID'))
 
 ##Station not having Microtox data
-missmictx<-master1[is.na(master1$toxicity_pc), c("surveyCode", "stationCode", "priority")]
+#missmictx<-master1[is.na(master1$toxicity_pc), c("surveyCode", "stationCode", "priority")]
 
 
 ##PWNut Data extracted from MDR document
@@ -133,16 +185,14 @@ master1<-left_join(master1, pwnutsed,
                    by=c('surveyCode'='Survey_ID', 'stationCode'='Station_ID'))
 
 ##Station not having PWNut data
-misspwnut<-master1[is.na(master1$nutValue), c("surveyCode", "stationCode", "priority")]
+#misspwnut<-master1[is.na(master1$nutValue), c("surveyCode", "stationCode", "priority")]
 
-
-##O2 Data extracted from MDR document
-##OPD currently being worked on
-o2<-read.csv("./data_raw/FromMDR/MDR_O2_extraction.csv")
+##OPD Data extracted from MDR document
+o2<-read.csv("./data_raw/FromMDR/MDR_OPD_extraction.csv")
 o2sed<-o2 %>%
-  select(Survey_ID, Station_ID, O2sat) %>% 
+  select(Survey_ID, Station_ID, OPD) %>% 
   group_by(Survey_ID, Station_ID) %>% 
-  summarise(O2sat = mean(O2sat, na.rm=T))
+  summarise(O2sat = mean(OPD, na.rm=T))
 
 
 ##Merge O2 and check for missing data
@@ -150,24 +200,37 @@ master1<-left_join(master1, o2sed,
                    by=c('surveyCode'='Survey_ID', 'stationCode'='Station_ID'))
 
 ##Station not having O2 data
-misso2<-master1[is.na(master1$O2sat), c("surveyCode", "stationCode", "priority")]
+#misso2<-master1[is.na(master1$O2sat), c("surveyCode", "stationCode", "priority")]
 
 
 ##Alkane Data extracted from MDR document
-## No New Alkane data yet
+## Old and New Alkanes
 alk<-read.csv("./data_raw/FromMDR/MDR_Alkanes_extraction.csv")
-alksed<-alk %>%
-  select(Survey_ID, Station_ID, Alkane) %>% 
-  group_by(Survey_ID, Station_ID) %>% 
-  summarise(Alkane = mean(Alkane, na.rm=T))
 
+alk.df<-alk %>% 
+  gather("alkane", "value", C12:Phytane)
+
+alk.df[alk.df$alkane %in% c(paste0("C", 12:36)), "Category"] <-"sumAlkanes"
+alk.df[alk.df$alkane %in% c("Pristane"), "Category"] <-"Pristane"
+alk.df[alk.df$alkane %in% c("Phytane"), "Category"] <-"Phytane"
+
+alksum<-alk.df %>%
+  group_by(Survey_ID, Station_ID, upperDepth_cm, lowerDepth_cm, medDepth_cm, Category) %>% 
+  summarise(sumValue = sum(value, na.rm=T))
+
+alksed<-alksum %>%
+  select(Survey_ID, Station_ID, Category, sumValue) %>% 
+  group_by(Survey_ID, Station_ID, Category) %>% 
+  summarise(value = mean(sumValue, na.rm=T))
+
+alksed<-spread(alksed, "Category", "value")
 
 ##Merge Alkane and check for missing data
 master1<-left_join(master1, alksed,
                    by=c('surveyCode'='Survey_ID', 'stationCode'='Station_ID'))
 
 ##Station not having Alkane data
-missalk<-master1[is.na(master1$Alkane), c("surveyCode", "stationCode", "priority")]
+#missalk<-master1[is.na(master1$Alkane), c("surveyCode", "stationCode", "priority")]
 
 
 ##Microplastic Data extracted from MDR document
@@ -185,17 +248,92 @@ master1<-left_join(master1, mpsed,
                    by=c('surveyCode'='Survey_ID', 'stationCode'='Station_ID'))
 
 ##Station not having MP data
-missmp<-master1[is.na(master1$MP_50_5000mm), c("surveyCode", "stationCode", "priority")]
+#missmp<-master1[is.na(master1$MP_50_5000mm), c("surveyCode", "stationCode", "priority")]
 
 
 
 ##Metals (combined with OT & REE) - Contaminants Data extracted from MDR document
 ## Old and New data integrated
 metal<-read.csv("./data_raw/FromMDR/MDR_Metals_OT_REE_extraction.csv")
-metalsed<-metal %>%
-  select(Survey_ID, Station_ID, Chromium) %>% 
-  group_by(Survey_ID, Station_ID) %>% 
-  summarise(Chromium = mean(Chromium, na.rm=T))
+mudmetal<-read.csv("./data_raw/FutureEvid_AllContaminants_mud.csv")
+## Correcting the metal per mud content
+metal.df<-metal %>% 
+  gather("Metal", "Value", Chromium:Mercury)
+
+metal.df<-left_join(metal.df, mudmetal) 
+
+metal.df[metal.df$Metal %in% "Chromium", "Toxicity"]<-18.0327868852459
+metal.df[metal.df$Metal %in% "Nickel", "Toxicity"]<-6.27547997617878
+metal.df[metal.df$Metal %in% "Copper", "Toxicity"]<-2.45956187182146
+metal.df[metal.df$Metal %in% "Cadmium", "Toxicity"]<-109.69305552118
+metal.df[metal.df$Metal %in% "Mercury", "Toxicity"]<-40.0793550550493
+
+#write.csv(metal.df, 
+#          "./data_raw/metalData_forJon.csv", row.names=F)
+
+metal.df$newValue<-metal.df$Value * (metal.df$mud_ctmnt_laser/100) * metal.df$Toxicity
+
+################################################Deprecated ignore###############################################
+## Mud content
+PSA[PSA$medDepth_cm <= 5, "depthCat"]<-"<5"
+PSA[PSA$medDepth_cm > 5 & PSA$medDepth_cm <= 10, "depthCat"]<-"5_10"
+PSA[PSA$medDepth_cm > 10 & PSA$medDepth_cm <= 15, "depthCat"]<-"10_15"
+PSA[PSA$medDepth_cm > 15 & PSA$medDepth_cm <= 20, "depthCat"]<-"15_20"
+PSA[PSA$medDepth_cm > 20 & PSA$medDepth_cm <= 25, "depthCat"]<-"20_25"
+PSA[PSA$medDepth_cm > 25 & PSA$medDepth_cm <= 30, "depthCat"]<-"25_30"
+PSA[PSA$medDepth_cm > 30, "depthCat"]<-"30<"
+
+metal.df[metal.df$medDepth_cm <= 5, "depthCat"]<-"<5"
+metal.df[metal.df$medDepth_cm > 5 & metal.df$medDepth_cm <= 10, "depthCat"]<-"5_10"
+metal.df[metal.df$medDepth_cm > 10 & metal.df$medDepth_cm <= 15, "depthCat"]<-"10_15"
+metal.df[metal.df$medDepth_cm > 15 & metal.df$medDepth_cm <= 20, "depthCat"]<-"15_20"
+metal.df[metal.df$medDepth_cm > 20 & metal.df$medDepth_cm <= 25, "depthCat"]<-"20_25"
+metal.df[metal.df$medDepth_cm > 25 & metal.df$medDepth_cm <= 30, "depthCat"]<-"25_30"
+
+PSA.metal<-PSA %>%
+  select(Survey_ID, Station_ID, depthCat, mud_pc) %>% 
+  group_by(Survey_ID, Station_ID, depthCat) %>% 
+  summarise(mud_pc_100 = mean(mud_pc/100),
+            mud_pc = mean(mud_pc))
+
+metal.df<-left_join(metal.df, PSA.metal)
+metal.df[metal.df$Station_ID %in% "MFRN006" & is.na(metal.df$mud_pc_100), "mud_pc_100"]<- metal.df[metal.df$Station_ID %in% "MFRN006" & metal.df$depthCat %in% "15_20", "mud_pc_100"]
+metal.df[metal.df$Station_ID %in% "MFRN008" & is.na(metal.df$mud_pc_100), "mud_pc_100"]<- metal.df[metal.df$Station_ID %in% "MFRN008" & metal.df$depthCat %in% "15_20", "mud_pc_100"]
+metal.df[metal.df$Station_ID %in% "MFRN018" & is.na(metal.df$mud_pc_100), "mud_pc_100"]<- metal.df[metal.df$Station_ID %in% "MFRN018" & metal.df$depthCat %in% "15_20", "mud_pc_100"]
+metal.df[metal.df$Station_ID %in% "MFLM024" & is.na(metal.df$mud_pc_100), "mud_pc_100"]<- metal.df[metal.df$Station_ID %in% "MFLM024" & metal.df$depthCat %in% "10_15", "mud_pc_100"]
+metal.df[metal.df$Station_ID %in% "MFLM027" & is.na(metal.df$mud_pc_100), "mud_pc_100"]<- metal.df[metal.df$Station_ID %in% "MFLM027" & metal.df$depthCat %in% "10_15", "mud_pc_100"]
+metal.df[metal.df$Station_ID %in% "MFLM030" & is.na(metal.df$mud_pc_100), "mud_pc_100"]<- metal.df[metal.df$Station_ID %in% "MFLM030" & metal.df$depthCat %in% "10_15", "mud_pc_100"]
+metal.df[metal.df$Station_ID %in% "MFLM026" & is.na(metal.df$mud_pc_100), "mud_pc_100"]<- metal.df[metal.df$Station_ID %in% "MFLM026" & metal.df$depthCat %in% "10_15", "mud_pc_100"]
+metal.df[metal.df$Station_ID %in% "MDGRB050" & is.na(metal.df$mud_pc_100), "mud_pc_100"]<- metal.df[metal.df$Station_ID %in% "MDGRB050" & metal.df$depthCat %in% "5_10", "mud_pc_100"]
+metal.df[metal.df$Station_ID %in% "SPT01" & is.na(metal.df$mud_pc_100), "mud_pc_100"]<- metal.df[metal.df$Station_ID %in% "SPT01" & metal.df$depthCat %in% "10_15", "mud_pc_100"]
+metal.df[metal.df$Station_ID %in% "X12" & is.na(metal.df$mud_pc_100), "mud_pc_100"]<- metal.df[metal.df$Station_ID %in% "X12" & metal.df$depthCat %in% "10_15", "mud_pc_100"]
+metal.df[metal.df$Station_ID %in% "X33" & is.na(metal.df$mud_pc_100), "mud_pc_100"]<- metal.df[metal.df$Station_ID %in% "X33" & metal.df$depthCat %in% "15_20", "mud_pc_100"]
+metal.df[metal.df$Station_ID %in% "X22" & is.na(metal.df$mud_pc_100), "mud_pc_100"]<- metal.df[metal.df$Station_ID %in% "X22" & metal.df$depthCat %in% "5_10", "mud_pc_100"]
+metal.df[metal.df$Station_ID %in% "MFRN016" & is.na(metal.df$mud_pc_100), "mud_pc_100"]<- metal.df[metal.df$Station_ID %in% "MFRN016" & metal.df$depthCat %in% "5_10", "mud_pc_100"]
+metal.df[metal.df$Station_ID %in% "MFRN001" & is.na(metal.df$mud_pc_100), "mud_pc_100"]<- metal.df[metal.df$Station_ID %in% "MFRN001" & metal.df$depthCat %in% "15_20", "mud_pc_100"]
+metal.df[metal.df$Station_ID %in% "MFRN002" & is.na(metal.df$mud_pc_100), "mud_pc_100"]<- metal.df[metal.df$Station_ID %in% "MFRN002" & metal.df$depthCat %in% "10_15", "mud_pc_100"]
+metal.df[metal.df$Station_ID %in% "MFRN015" & is.na(metal.df$mud_pc_100), "mud_pc_100"]<- metal.df[metal.df$Station_ID %in% "MFRN015" & metal.df$depthCat %in% "<5", "mud_pc_100"][1]
+
+## Correcting value with the following: uncorrected x toxicity (provided by Steve W. & Claire M.) x mud (/100) = corrected
+# Chromium: 18.0327868852459; Nickel: 6.27547997617878; Copper: 2.45956187182146; Cadmium: 109.69305552118; Mercury: 40.0793550550493
+metal.df[metal.df$Metal %in% "Chromium", "newValue"]<- metal.df[metal.df$Metal %in% "Chromium", "Value"] *  18.0327868852459 *
+  metal.df[metal.df$Metal %in% "Chromium", "mud_pc_100"] 
+metal.df[metal.df$Metal %in% "Nickel", "newValue"]<- metal.df[metal.df$Metal %in% "Nickel", "Value"] *  6.27547997617878 *
+  metal.df[metal.df$Metal %in% "Nickel", "mud_pc_100"] 
+metal.df[metal.df$Metal %in% "Copper", "newValue"]<- metal.df[metal.df$Metal %in% "Copper", "Value"] *  2.45956187182146 *
+  metal.df[metal.df$Metal %in% "Copper", "mud_pc_100"] 
+metal.df[metal.df$Metal %in% "Cadmium", "newValue"]<- metal.df[metal.df$Metal %in% "Cadmium", "Value"] *  109.69305552118 *
+  metal.df[metal.df$Metal %in% "Cadmium", "mud_pc_100"] 
+metal.df[metal.df$Metal %in% "Mercury", "newValue"]<- metal.df[metal.df$Metal %in% "Mercury", "Value"] *  40.0793550550493 *
+  metal.df[metal.df$Metal %in% "Mercury", "mud_pc_100"] 
+##########################################################End of Ignorance#################################################
+
+metalsed<-metal.df %>%
+  select(Survey_ID, Station_ID, Metal, newValue) %>% 
+  group_by(Survey_ID, Station_ID, Metal) %>% 
+  summarise(value = mean(newValue, na.rm=T))
+
+metalsed<-spread(metalsed, "Metal", "value")
 
 
 ##Merge Metals and check for missing data
@@ -203,16 +341,24 @@ master1<-left_join(master1, metalsed,
                    by=c('surveyCode'='Survey_ID', 'stationCode'='Station_ID'))
 
 ##Station not having Metals data
-missmetal<-master1[is.na(master1$Chromium), c("surveyCode", "stationCode", "priority")]
+#missmetal<-master1[is.na(master1$Chromium), c("surveyCode", "stationCode", "priority")]
 
 
 ##Organohalogens - Contaminants Data extracted from MDR document
 ##Old and New data integrated
 orghal<-read.csv("./data_raw/FromMDR/MDR_OrgHal_extraction.csv")
-orghalsed<-orghal %>%
-  select(Survey_ID, Station_ID, Dieldrin) %>% 
-  group_by(Survey_ID, Station_ID) %>% 
-  summarise(Dieldrin = mean(Dieldrin, na.rm=T))
+
+
+orghalsum<-orghal %>%
+  group_by(Survey_ID, Station_ID, upperDepth_cm, lowerDepth_cm, medDepth_cm, Analysis_ID) %>% 
+  summarise(sumValue = sum(Value, na.rm=T))
+
+orghalsed<-orghalsum %>%
+  select(Survey_ID, Station_ID, Analysis_ID, sumValue) %>% 
+  group_by(Survey_ID, Station_ID, Analysis_ID) %>% 
+  summarise(Value = mean(sumValue, na.rm=T))
+
+orghalsed<-spread(orghalsed, "Analysis_ID", "Value")
 
 
 ##Merge Organohalogens and check for missing data
@@ -220,7 +366,7 @@ master1<-left_join(master1, orghalsed,
                    by=c('surveyCode'='Survey_ID', 'stationCode'='Station_ID'))
 
 ##Station not having Organohalogens data
-missorghal<-master1[is.na(master1$Dieldrin), c("surveyCode", "stationCode", "priority")]
+#missorghal<-master1[is.na(master1$Dieldrin), c("surveyCode", "stationCode", "priority")]
 
 
 
@@ -228,38 +374,53 @@ missorghal<-master1[is.na(master1$Dieldrin), c("surveyCode", "stationCode", "pri
 ##PAH - Contaminants Data extracted from MDR document
 ## No new PAH
 pah<-read.csv("./data_raw/FromMDR/MDR_PAHs_extraction.csv")
-pahsed<-pah %>%
-  select(Survey_ID, Station_ID, Acenaphthylene) %>% 
-  group_by(Survey_ID, Station_ID) %>% 
-  summarise(Acenaphthylene = mean(Acenaphthylene, na.rm=T))
+pah_cat<-read.csv("./data_raw/PAH_category.csv")
 
+pah<-left_join(pah, pah_cat)
+
+pahsum<-pah %>%
+  group_by(Survey_ID, Station_ID, upperDepth_cm, lowerDepth_cm, medDepth_cm, PAH) %>% 
+  summarise(sumValue = sum(Value, na.rm=T))
+
+pahsed<-pahsum %>%
+  select(Survey_ID, Station_ID, PAH, sumValue) %>% 
+  group_by(Survey_ID, Station_ID, PAH) %>% 
+  summarise(Value = mean(sumValue, na.rm=T))
+
+pahsed<-spread(pahsed, "PAH", "Value")
 
 ##Merge PAH and check for missing data
-master1<-left_join(master1, pahsed,
+master1<-left_join(master1, pahsed[, c("Survey_ID", "Station_ID", "HMW","LMW")],
                    by=c('surveyCode'='Survey_ID', 'stationCode'='Station_ID'))
 
 ##Station not having PAH data
-misspah<-master1[is.na(master1$Acenaphthylene), c("surveyCode", "stationCode", "priority")]
+#misspah<-master1[is.na(master1$Acenaphthylene), c("surveyCode", "stationCode", "priority")]
 
 
 ##PFAS - Contaminants Data extracted from MDR document
 ##No new PFAS
 pfas<-read.csv("./data_raw/FromMDR/MDR_PFAS_extraction.csv")
-pfassed<-pfas %>%
-  select(Survey_ID, Station_ID, PFNA) %>% 
-  group_by(Survey_ID, Station_ID) %>% 
-  summarise(PFNA = mean(PFNA, na.rm=T))
 
+pfassum<-pfas %>%
+  group_by(Survey_ID, Station_ID, upperDepth_cm, lowerDepth_cm, medDepth_cm, Analysis_ID) %>% 
+  summarise(sumValue = sum(Value, na.rm=T))
+
+pfassed<-pfassum %>%
+  select(Survey_ID, Station_ID, Analysis_ID, sumValue) %>% 
+  group_by(Survey_ID, Station_ID, Analysis_ID) %>% 
+  summarise(Value = mean(sumValue, na.rm=T))
+
+pfassed<-spread(pfassed, "Analysis_ID", "Value")
 
 ##Merge PFAS and check for missing data
 master1<-left_join(master1, pfassed,
                    by=c('surveyCode'='Survey_ID', 'stationCode'='Station_ID'))
 
 ##Station not having PFAS data
-misspfas<-master1[is.na(master1$PFNA), c("surveyCode", "stationCode", "priority")]
+#misspfas<-master1[is.na(master1$PFNA), c("surveyCode", "stationCode", "priority")]
 
 
-write.csv(master1, "./data_raw/FromMDR/masterdata_check.csv")
+#write.csv(master1, "./data_raw/FromMDR/masterdata_check.csv")
 
 ###########FULL COMPILATION OF DATA######################
 
@@ -408,6 +569,9 @@ pah<-read.csv("./data_raw/FromMDR/MDR_PAHs_extraction.csv")
 ##PFAS - Contaminants Data extracted from MDR document
 pfas<-read.csv("./data_raw/FromMDR/MDR_PFAS_extraction.csv")
 
+FUTEVID.NCP<-master1
+
+save(FUTEVID.NCP,  file="./input/FUTEVID.NCP.RData")
 
 
 ########################## Biodiversity **********************************************************************************************************
